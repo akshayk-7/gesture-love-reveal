@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Love Reveal</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        canvas.output_canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+
+        /* Hidden video for mediapipe */
+        .input_video {
+            display: none;
+        }
+
+        #ui {
+            position: absolute;
+            z-index: 20;
+            top: 40px;
+            text-align: center;
+            width: 100%;
+            pointer-events: none;
+        }
+
+        #status {
+            font-size: 24px;
+            font-weight: 300;
+            letter-spacing: 2px;
+            color: rgba(255, 255, 255, 0.7);
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+            transition: opacity 0.5s ease;
+        }
+
+        button {
+            pointer-events: auto;
+            position: absolute;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            font-size: 16px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 30px;
+            cursor: pointer;
+            backdrop-filter: blur(5px);
+            transition: all 0.3s ease;
+            z-index: 30;
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.5);
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
+        }
+
+        #bottomBar {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 40px;
+            padding: 12px 24px;
+            display: flex;
+            gap: 20px;
+            z-index: 20;
+            transition: opacity 0.5s ease;
+        }
+
+        .step {
+            font-size: 24px;
+            opacity: 0.3;
+            transition: all 0.3s ease;
+            filter: grayscale(100%);
+        }
+
+        .step.active {
+            opacity: 1;
+            filter: grayscale(0%);
+            transform: scale(1.3);
+        }
+
+        @media (max-width: 600px) {
+            #status {
+                font-size: 18px;
+            }
+
+            #ui {
+                top: 20px;
+            }
+
+            .step {
+                font-size: 20px;
+            }
+
+            #bottomBar {
+                gap: 15px;
+                padding: 8px 16px;
+                bottom: 20px;
+            }
+
+            button {
+                bottom: 80px;
+                font-size: 14px;
+                padding: 10px 20px;
+            }
+        }
+    </style>
+    <!-- MediaPipe dependencies via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+
+<body>
+
+    <video class="input_video" autoplay playsinline></video>
+    <canvas class="output_canvas"></canvas>
+
+    <div id="ui">
+        <div id="status">Initializing AI Camera...</div>
+    </div>
+    <button id="resetBtn" style="display: none;">Reset Experience</button>
+
+    <div id="bottomBar">
+        <div class="step" id="step1">☝️</div>
+        <div class="step" id="step2">✌️</div>
+        <div class="step" id="step3">🖐️</div>
+    </div>
+
+    <script>
+        const videoElement = document.getElementsByClassName('input_video')[0];
+        const canvasElement = document.getElementsByClassName('output_canvas')[0];
+        const canvasCtx = canvasElement.getContext('2d', { alpha: false }); // Optimize for black background
+        const statusText = document.getElementById('status');
+        const resetBtn = document.getElementById('resetBtn');
+
+        // Handle high DPI displays for crisp rendering
+        const dpr = window.devicePixelRatio || 1;
+
+        function resizeCanvas() {
+            canvasElement.width = window.innerWidth * dpr;
+            canvasElement.height = window.innerHeight * dpr;
+            canvasElement.style.width = window.innerWidth + 'px';
+            canvasElement.style.height = window.innerHeight + 'px';
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // System Entities
+        let particles = [];
+        let flowers = [];
+
+        function getRandomSwarmColor() {
+            const colors = [
+                "rgba(255, 255, 255, 0.7)", // white
+                "rgba(135, 206, 235, 0.7)", // skyblue
+                "rgba(255, 192, 203, 0.7)"  // pink
+            ];
+            return colors[Math.floor(Math.random() * colors.length)];
+        }
+
+        function initInitialCloud() {
+            const count = 600;
+            particles = [];
+            for (let i = 0; i < count; i++) {
+                const cx = canvasElement.width / 2;
+                const cy = canvasElement.height / 2;
+                const r = Math.random() * 200 * dpr;
+                const theta = Math.random() * 2 * Math.PI;
+
+                particles.push({
+                    x: cx + r * Math.cos(theta),
+                    y: cy + r * Math.sin(theta),
+                    tx: cx + r * Math.cos(theta),
+                    ty: cy + r * Math.sin(theta),
+                    color: getRandomSwarmColor(),
+                    size: (Math.random() * 2 + 1) * (dpr * 0.7),
+                    jitterSpeed: Math.random() * 0.1 + 0.05,
+                    angle: Math.random() * Math.PI * 2,
+                    orbitSpeed: (Math.random() - 0.5) * 0.02,
+                    radius: r,
+                    baseAngle: theta
+                });
+            }
+        }
+        initInitialCloud();
+
+        // State Machine
+        const STATES = {
+            WAITING: 0,
+            SHOW_1: 1,
+            SHOW_2: 2,
+            SHOW_ILOVEU: 3,
+            SHOW_HEART: 4
+        };
+
+        let currentState = STATES.WAITING;
+        let stateTimer = null;
+        let isCameraReady = false;
+        let stableFingers = -1;
+        let fingersStartTime = 0;
+        let lastStateChangeTime = 0;
+        let resetTimer = null;
+
+        function startTimerForNextState(delay, nextState) {
+            if (stateTimer) clearTimeout(stateTimer);
+            stateTimer = setTimeout(() => {
+                changeState(nextState);
+            }, delay);
+        }
+
+        function updateBottomBar(activeIndex) {
+            for (let i = 1; i <= 3; i++) {
+                const el = document.getElementById('step' + i);
+                if (el) {
+                    if (i === activeIndex) {
+                        el.classList.add('active');
+                    } else {
+                        el.classList.remove('active');
+                    }
+                }
+            }
+        }
+
+        function changeState(newState) {
+            if (currentState === newState) return;
+            currentState = newState;
+            lastStateChangeTime = Date.now();
+            if (resetTimer) {
+                clearTimeout(resetTimer);
+                resetTimer = null;
+            }
+
+            if (currentState === STATES.SHOW_1) {
+                statusText.innerText = "Show 2 fingers ✌️";
+                createParticlesForText("1", "#ffdd44"); // Yellow
+                updateBottomBar(1);
+
+            } else if (currentState === STATES.SHOW_2) {
+                statusText.innerText = "Show 5 fingers 🖐️";
+                createParticlesForText("2", "#44ddff"); // Cyan
+                updateBottomBar(2);
+
+            } else if (currentState === STATES.SHOW_ILOVEU) {
+                statusText.innerText = "";
+                // Name is obfuscated to prevent easy reading in the source code
+                createParticlesForText("I ❤ U " + String.fromCharCode(83, 79, 78, 85), "#ff4466"); // pink/red
+                spawnFlowers(20);
+                startTimerForNextState(4000, STATES.SHOW_HEART);
+                updateBottomBar(3);
+
+            } else if (currentState === STATES.SHOW_HEART) {
+                createParticlesForHeart("#ff2255");
+                resetBtn.style.display = "inline-block";
+                updateBottomBar(3);
+
+            } else if (currentState === STATES.WAITING) {
+                if (isCameraReady) {
+                    statusText.innerText = "Show 1 finger ☝️ to start";
+                }
+                updateBottomBar(0);
+
+                if (particles.length === 0) {
+                    initInitialCloud();
+                } else {
+                    // Turn existing particles back into a central swarm
+                    for (let p of particles) {
+                        const cx = canvasElement.width / 2;
+                        const cy = canvasElement.height / 2;
+                        p.baseAngle = Math.atan2(p.y - cy, p.x - cx);
+                        p.radius = Math.hypot(p.y - cy, p.x - cx);
+                        if (p.radius > 200 * dpr) p.radius = Math.random() * 200 * dpr; // Pull them into a tighter ball
+                        p.orbitSpeed = (Math.random() - 0.5) * 0.02;
+                        p.color = getRandomSwarmColor();
+                    }
+                }
+                flowers = [];
+                resetBtn.style.display = "none";
+            }
+        }
+
+        resetBtn.addEventListener('click', () => {
+            changeState(STATES.WAITING);
+        });
+
+        // Helper: Draw shape on offscreen canvas and sample pixels to generate targets
+        function samplePointsFromDraw(drawFn, color, spacing) {
+            const offscreen = document.createElement('canvas');
+            offscreen.width = window.innerWidth;
+            offscreen.height = window.innerHeight;
+            const ctx = offscreen.getContext('2d');
+
+            drawFn(ctx, offscreen.width, offscreen.height);
+
+            const data = ctx.getImageData(0, 0, offscreen.width, offscreen.height).data;
+            const newTargets = [];
+
+            for (let y = 0; y < offscreen.height; y += spacing) {
+                for (let x = 0; x < offscreen.width; x += spacing) {
+                    const index = (y * offscreen.width + x) * 4;
+                    if (data[index + 3] > 128) { // If pixel is mostly opaque
+                        // Scale coordinates by devicePixelRatio to match visual coordinates
+                        newTargets.push({ x: x * dpr, y: y * dpr, color });
+                    }
+                }
+            }
+
+            // Morph existing particles to new targets, spawn additional if needed
+            const oldParticles = [...particles];
+            particles = [];
+
+            for (let i = 0; i < newTargets.length; i++) {
+                const target = newTargets[i];
+                let startPos;
+                if (i < oldParticles.length) {
+                    // Reuse existing particle position for smooth transition
+                    startPos = { x: oldParticles[i].x, y: oldParticles[i].y };
+                } else {
+                    // Spawn new particle from bottom
+                    startPos = {
+                        x: Math.random() * canvasElement.width,
+                        y: canvasElement.height + (Math.random() * 200 * dpr)
+                    };
+                }
+
+                particles.push({
+                    x: startPos.x,
+                    y: startPos.y,
+                    tx: target.x,
+                    ty: target.y,
+                    color: target.color,
+                    size: (Math.random() * 2 + 1.5) * (dpr * 0.7), // Scale size for DPR
+                    jitterSpeed: Math.random() * 0.1 + 0.05,
+                    angle: Math.random() * Math.PI * 2,
+                    orbitSpeed: (Math.random() - 0.5) * 0.02,
+                    baseAngle: Math.random() * Math.PI * 2,
+                    radius: Math.random() * 200 * dpr
+                });
+            }
+        }
+
+        function createParticlesForText(text, color) {
+            // Adjust spacing based on screen size to maintain performance
+            const isMobile = window.innerWidth < 600;
+            const spacing = isMobile ? 7 : 5;
+
+            samplePointsFromDraw((ctx, w, h) => {
+                ctx.fillStyle = "white";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.font = `bold ${Math.min(w * 0.25, 250)}px Arial, sans-serif`;
+                ctx.fillText(text, w / 2, h / 2);
+            }, color, spacing);
+        }
+
+        function createParticlesForHeart(color) {
+            const isMobile = window.innerWidth < 600;
+            const spacing = isMobile ? 7 : 5;
+
+            samplePointsFromDraw((ctx, w, h) => {
+                ctx.fillStyle = "white";
+                ctx.translate(w / 2, h / 2 - 50);
+                ctx.beginPath();
+
+                // Parametric heart equation
+                const scale = Math.min(w, h) * 0.035;
+                for (let t = 0; t <= Math.PI * 2; t += 0.02) {
+                    const x = 16 * Math.pow(Math.sin(t), 3);
+                    const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+                    if (t === 0) ctx.moveTo(x * scale, y * scale);
+                    else ctx.lineTo(x * scale, y * scale);
+                }
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.fillStyle = "#ffffff";
+                ctx.fill();
+            }, color, spacing);
+        }
+
+        function spawnFlowers(count) {
+            const flowerEmojis = ["🌷", "🌹", "🌻", "💖", "❤️", "✨", "🌼", "🌺", "🌸"];
+            for (let i = 0; i < count; i++) {
+                flowers.push({
+                    x: Math.random() * canvasElement.width,
+                    y: canvasElement.height + 100 * dpr + Math.random() * 300 * dpr,
+                    emoji: flowerEmojis[Math.floor(Math.random() * flowerEmojis.length)],
+                    speedY: (2 + Math.random() * 3) * dpr,
+                    phase: Math.random() * Math.PI * 2,
+                    sway: (0.5 + Math.random() * 1.5) * dpr,
+                    size: (40 + Math.random() * 30) * dpr
+                });
+            }
+        }
+
+        // Main Render Loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Fade out background for a slight motion trail effect
+            canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+
+            // Render Flowers (behind particles)
+            for (let i = flowers.length - 1; i >= 0; i--) {
+                let f = flowers[i];
+
+                // Movement
+                f.y -= f.speedY;
+                f.x += Math.sin(f.phase) * f.sway;
+                f.phase += 0.03;
+
+                // Draw Flower Emoji
+                canvasCtx.font = `${f.size}px Arial`;
+                canvasCtx.textAlign = "center";
+                canvasCtx.textBaseline = "middle";
+                canvasCtx.fillText(f.emoji, f.x, f.y);
+
+                // Cleanup off-screen flowers
+                if (f.y < -200 * dpr) {
+                    flowers.splice(i, 1);
+                }
+            }
+
+            // Render Particles
+            // Additive blending for a magical glowing look
+            canvasCtx.globalCompositeOperation = 'lighter';
+
+            for (let i = 0; i < particles.length; i++) {
+                let p = particles[i];
+
+                if (currentState === STATES.WAITING) {
+                    p.baseAngle += p.orbitSpeed;
+                    const cx = canvasElement.width / 2;
+                    const cy = canvasElement.height / 2;
+
+                    // Gentle breathing/drifting radius
+                    p.radius += (Math.random() - 0.5) * 1.5 * dpr;
+                    if (p.radius < 0) p.radius = 0;
+                    if (p.radius > 250 * dpr) p.radius -= 2 * dpr;
+
+                    p.tx = cx + p.radius * Math.cos(p.baseAngle);
+                    p.ty = cy + p.radius * Math.sin(p.baseAngle);
+                }
+
+                // Easing / Lerp towards target position
+                p.x += (p.tx - p.x) * 0.08;
+                p.y += (p.ty - p.y) * 0.08;
+
+                // Circular Jitter / Twinkle effect around target
+                p.angle += p.jitterSpeed;
+                const jx = p.x + Math.cos(p.angle) * 1.5 * dpr;
+                const jy = p.y + Math.sin(p.angle) * 1.5 * dpr;
+
+                // Draw particle
+                canvasCtx.beginPath();
+                canvasCtx.arc(jx, jy, p.size, 0, Math.PI * 2);
+                canvasCtx.fillStyle = p.color;
+                canvasCtx.fill();
+            }
+
+            canvasCtx.globalCompositeOperation = 'source-over';
+
+            if (currentState === STATES.SHOW_HEART) {
+                canvasCtx.save();
+                canvasCtx.translate(canvasElement.width / 2, canvasElement.height / 2);
+                const scale = Math.min(canvasElement.width / dpr, canvasElement.height / dpr) * 0.4 * dpr;
+                canvasCtx.translate(0, -scale * 0.2);
+
+                canvasCtx.textAlign = "center";
+                canvasCtx.textBaseline = "middle";
+                const fontSize = Math.min((canvasElement.width / dpr) * 0.12, 100) * dpr;
+                canvasCtx.font = `bold ${fontSize}px Arial, sans-serif`;
+
+                canvasCtx.shadowColor = "rgba(0, 0, 0, 0.8)";
+                canvasCtx.shadowBlur = 15 * dpr;
+                canvasCtx.fillStyle = "#ffffff";
+                // Name is obfuscated to prevent easy reading in the source code
+                // canvasCtx.fillText(String.fromCharCode(83, 79, 78, 85) + " 🫶", 0, 0);
+                canvasCtx.restore();
+            }
+
+            // Reset composite operation for next frame
+            canvasCtx.globalCompositeOperation = 'source-over';
+        }
+        animate();
+
+        // MediaPipe Hands Initialization
+        const hands = new Hands({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }
+        });
+
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1, // 1 is a good balance of accuracy and speed
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
+
+        hands.onResults((results) => {
+            if (!isCameraReady) {
+                isCameraReady = true;
+                if (currentState === STATES.WAITING) {
+                    statusText.innerText = "Show 1 finger ☝️ to start";
+                }
+            }
+
+            if (!results.multiHandLandmarks) return;
+
+            let totalFingers = 0;
+
+            for (const landmarks of results.multiHandLandmarks) {
+                // Count fingers based on tip vs PIP joint vertical position 
+                // (Works best when hand is mostly upright relative to camera)
+                const tips = [8, 12, 16, 20]; // Index, Middle, Ring, Pinky
+                const pips = [6, 10, 14, 18];
+
+                for (let i = 0; i < 4; i++) {
+                    if (landmarks[tips[i]].y < landmarks[pips[i]].y) {
+                        totalFingers++;
+                    }
+                }
+
+                // Thumb check: Compare distance from tip to Pinky MCP (17) vs IP to Pinky MCP (17)
+                // A more robust way to check thumb extension regardless of hand orientation
+                const distTip = Math.hypot(landmarks[4].x - landmarks[17].x, landmarks[4].y - landmarks[17].y);
+                const distIP = Math.hypot(landmarks[3].x - landmarks[17].x, landmarks[3].y - landmarks[17].y);
+                if (distTip > distIP) {
+                    totalFingers++;
+                }
+            }
+
+            const now = Date.now();
+
+            // Wait a very short cooldown (500ms) after a state change so it doesn't double trigger instantly
+            if (now - lastStateChangeTime < 500) return;
+
+            // Logic based on state and detected fingers
+            if (currentState === STATES.WAITING) {
+                if (totalFingers === 1) {
+                    changeState(STATES.SHOW_1);
+                }
+            } else if (currentState === STATES.SHOW_1) {
+                if (totalFingers === 2) {
+                    changeState(STATES.SHOW_2);
+                }
+            } else if (currentState === STATES.SHOW_2) {
+                if (totalFingers === 5) {
+                    changeState(STATES.SHOW_ILOVEU);
+                }
+            } else if (currentState === STATES.SHOW_HEART) {
+                if (totalFingers === 0) {
+                    if (!resetTimer) {
+                        resetTimer = setTimeout(() => {
+                            changeState(STATES.WAITING);
+                        }, 5000);
+                    }
+                } else {
+                    if (resetTimer) {
+                        clearTimeout(resetTimer);
+                        resetTimer = null;
+                    }
+                }
+            }
+        });
+
+        // Start Webcam
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({ image: videoElement });
+            },
+            width: 640,
+            height: 480
+        });
+
+        camera.start()
+            .catch(err => {
+                statusText.innerText = "Error starting camera. Please ensure permissions are granted.";
+                console.error(err);
+            });
+
+    </script>
+</body>
+
+</html>
