@@ -28,9 +28,19 @@
             z-index: 10;
         }
 
-        /* Hidden video for mediapipe */
+        /* Visible mini-camera for mediapipe */
         .input_video {
-            display: none;
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 140px;
+            height: auto;
+            border-radius: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            z-index: 30;
+            transform: scaleX(-1); /* mirror */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            display: block;
         }
 
         #ui {
@@ -127,6 +137,11 @@
                 bottom: 80px;
                 font-size: 14px;
                 padding: 10px 20px;
+            }
+            .input_video {
+                width: 100px; /* smaller camera on mobile */
+                top: 10px;
+                left: 10px;
             }
         }
     </style>
@@ -471,9 +486,9 @@
                     p.ty = cy + p.radius * Math.sin(p.baseAngle);
                 }
 
-                // Easing / Lerp towards target position
-                p.x += (p.tx - p.x) * 0.08;
-                p.y += (p.ty - p.y) * 0.08;
+                // Easing / Lerp towards target position (increased speed from 0.08 to 0.15)
+                p.x += (p.tx - p.x) * 0.15;
+                p.y += (p.ty - p.y) * 0.15;
 
                 // Circular Jitter / Twinkle effect around target
                 p.angle += p.jitterSpeed;
@@ -522,7 +537,7 @@
 
         hands.setOptions({
             maxNumHands: 2,
-            modelComplexity: 1, // 1 is a good balance of accuracy and speed
+            modelComplexity: 0, // 0 is the fastest model (lite) for immediate recognition
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
