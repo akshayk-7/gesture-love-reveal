@@ -523,8 +523,8 @@
         hands.setOptions({
             maxNumHands: 2,
             modelComplexity: 1, // 1 is a good balance of accuracy and speed
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
         });
 
         hands.onResults((results) => {
@@ -540,22 +540,25 @@
             let totalFingers = 0;
 
             for (const landmarks of results.multiHandLandmarks) {
-                // Count fingers based on tip vs PIP joint vertical position 
-                // (Works best when hand is mostly upright relative to camera)
+                // Count fingers based on distance to wrist (landmark 0)
+                // This makes detection work even if the hand is tilted or sideways
                 const tips = [8, 12, 16, 20]; // Index, Middle, Ring, Pinky
                 const pips = [6, 10, 14, 18];
 
                 for (let i = 0; i < 4; i++) {
-                    if (landmarks[tips[i]].y < landmarks[pips[i]].y) {
+                    const tipDist = Math.hypot(landmarks[tips[i]].x - landmarks[0].x, landmarks[tips[i]].y - landmarks[0].y);
+                    const pipDist = Math.hypot(landmarks[pips[i]].x - landmarks[0].x, landmarks[pips[i]].y - landmarks[0].y);
+                    // If the tip is further from the wrist than the PIP joint, the finger is open
+                    if (tipDist > pipDist) {
                         totalFingers++;
                     }
                 }
 
                 // Thumb check: Compare distance from tip to Pinky MCP (17) vs IP to Pinky MCP (17)
-                // A more robust way to check thumb extension regardless of hand orientation
+                // Added a 1.15 multiplier so a relaxed thumb isn't accidentally counted as an open finger
                 const distTip = Math.hypot(landmarks[4].x - landmarks[17].x, landmarks[4].y - landmarks[17].y);
                 const distIP = Math.hypot(landmarks[3].x - landmarks[17].x, landmarks[3].y - landmarks[17].y);
-                if (distTip > distIP) {
+                if (distTip > distIP * 1.15) {
                     totalFingers++;
                 }
             }
